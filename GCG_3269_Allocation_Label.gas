@@ -1,0 +1,555 @@
+Program.Sub.ScreenSU.Start
+Program.Sub.ScreenSU.End
+
+Program.Sub.Preflight.Start
+
+Variable.UDT.uAllocate.Define("Trans_ID",String)
+Variable.UDT.uAllocate.Define("Trans_Seq",String)
+Variable.UDT.uAllocate.Define("Trans_Type",String)
+Variable.UDT.uAllocate.Define("Status_Flag",String)
+Variable.UDT.uAllocate.Define("Attempted_Date",String)
+Variable.UDT.uAllocate.Define("Attempted_Time",String)
+Variable.UDT.uAllocate.Define("User_ID",String)
+Variable.UDT.uAllocate.Define("Part",String)
+Variable.UDT.uAllocate.Define("Locn",String)
+Variable.UDT.uAllocate.Define("Lot",String)
+Variable.UDT.uAllocate.Define("Bin",String)
+Variable.UDT.uAllocate.Define("Heat",String)
+Variable.UDT.uAllocate.Define("Serial",String)
+Variable.UDT.uAllocate.Define("Available_Qty",Float)
+Variable.UDT.uAllocate.Define("On_Hand_Qty",Float)
+Variable.UDT.uAllocate.Define("Transfer_Qty",Float)
+Variable.UDT.uAllocate.Define("Description",String)
+Variable.UDT.uAllocate.Define("Employee_ID",String)
+Variable.UDT.uAllocate.Define("Employee_Name",String)
+Variable.UDT.uAllocate.Define("Reference",String)
+Variable.UDT.uAllocate.Define("WO_Nbr",String)
+Variable.UDT.uAllocate.Define("WO_Suffix",String)
+Variable.UDT.uAllocate.Define("SO_Nbr",String)
+Variable.UDT.uAllocate.Define("SO_Line",String)
+Variable.UDT.uAllocate.Define("Last_Chg_Date",String)
+Variable.UDT.uAllocate.Define("Last_Chg_Time",String)
+Variable.UDT.uAllocate.Define("Last_Chg_By",String)
+Variable.UDT.uAllocate.Define("Attempted_Flag",String)
+Variable.UDT.uAllocate.Define("Target_Bin",String)
+Variable.uGlobal.uAllocate.Declare("uAllocate")
+Program.Sub.Preflight.End
+
+Program.Sub.Main.Start
+V.uGlobal.uAllocate.Redim(-1,-1)
+F.ODBC.Connection!con.OpenConnection(V.Ambient.PDSN,V.Ambient.PUser,V.Ambient.PPass)
+F.Intrinsic.Control.If(V.Caller.Hook,=,"33155")
+	F.Intrinsic.Control.CallSub(Allocate)
+F.Intrinsic.Control.Else
+	F.Intrinsic.Control.CallSub(Unallocate)
+F.Intrinsic.Control.EndIf
+
+Program.Sub.Main.End
+
+Program.Sub.Allocate.Start
+F.Intrinsic.Control.SetErrorHandler("Allocate_Err")
+F.Intrinsic.Control.ClearErrors
+
+V.Local.sError.Declare(String)
+V.Local.sSql.Declare(String)
+V.Local.iTID.Declare(Long)
+V.Local.sTID.Declare(String)
+V.Local.iRowCnt.Declare(Long)
+V.Local.i.Declare(Long)
+V.Local.ia.Declare(Long)
+V.Local.sRow.Declare(String)
+V.Local.iSeq.Declare(Long)
+V.Local.sSeq.Declare(String)
+V.Local.sDate.Declare(String)
+V.Local.sTime.Declare(String)
+V.Local.fQty.Declare(Float)
+V.Local.sEmp.Declare(String)
+V.Local.sEmpName.Declare(String)
+V.Local.sOrdNum.Declare(String)
+V.Local.sOrdLine.Declare(String)
+V.Local.sChk.Declare(String)
+V.Local.sRet.Declare(String)
+V.Local.iUB.Declare(Long)
+
+'Getting last transaction id
+V.Local.sSql.Set("Select TRANS_ID from WIRELESS_LABEL")
+F.ODBC.Connection!con.OpenLocalRecordsetRO("rst",V.Local.sSql)
+F.Intrinsic.Control.If(V.ODBC.con!rst.EOF,=,True)
+	V.Local.iTID.Set(1)
+F.Intrinsic.Control.Else
+	F.Intrinsic.Control.DoUntil(V.ODBC.con!rst.EOF,=,True)
+		V.Local.iTID.Set(V.ODBC.con!rst.FieldVal!TRANS_ID)
+		F.ODBC.con!rst.MoveNext
+	F.Intrinsic.Control.Loop
+F.Intrinsic.Control.EndIf
+F.ODBC.con!rst.Close
+'Checking to see which allocation type
+F.Intrinsic.Control.SelectCase(V.Passed.000112.Trim)
+	F.Intrinsic.Control.Case("User")
+		F.Intrinsic.Control.If(V.Passed.000292.Trim,=,"")
+			V.Local.sChk.Set(V.Caller.User)
+		F.Intrinsic.Control.Else
+			V.Local.sChk.Set(V.Passed.000292.Trim)
+		F.Intrinsic.Control.EndIf
+	F.Intrinsic.Control.Case("Customer")
+		V.Local.sChk.Set(V.Passed.000144.Trim)
+	F.Intrinsic.Control.Case("Sales Order")
+		F.Intrinsic.String.Concat(V.Passed.000147.Trim,"-",V.Passed.000147.Trim)
+	F.Intrinsic.Control.Case("Work Order")
+		F.Intrinsic.String.LPad(V.Passed.000154.Trim,0,6,V.Local.sChk)
+		F.Intrinsic.String.Concat(V.Passed.000150.Trim,V.Passed.000151.Trim,V.Local.sChk,V.Local.sChk)
+F.Intrinsic.Control.EndSelect
+'Opening BDF to go through allocations
+F.Intrinsic.BDF.Load("AUX001","AUX001")
+F.Intrinsic.Debug.Stop
+F.Intrinsic.BDF.ReadRowCount("AUX001",V.Local.iRowCnt)
+F.Intrinsic.Math.Sub(V.Local.iRowCnt,1,V.Local.iRowCnt)
+F.Intrinsic.Math.Add(V.Local.iTID,1,V.Local.iTID)
+F.Intrinsic.String.LPad(V.Local.iTID,0,9,V.Local.sTID)
+V.Local.iSeq.Set(-1)
+F.Intrinsic.String.Format(V.Ambient.Date,"YYYYMMDD",V.Local.sDate)
+F.Intrinsic.String.Format(V.Ambient.Time,"HhNnSs",V.Local.sTime)
+F.Intrinsic.String.Concat(V.Local.sTime,"00",V.Local.sTime)
+F.Intrinsic.Control.For(V.Local.i,0,V.Local.iRowCnt,1)
+	F.Intrinsic.BDF.ReadRow("AUX001",V.Local.i,V.Local.sRow)
+	F.Intrinsic.String.Split(V.Local.sRow,"|~|",V.Local.sRow)
+	F.Intrinsic.Control.If(V.Local.sRow(9).Float,<>,0)
+		F.Intrinsic.String.Concat("Select EMPLOYEE, NAME from V_EMPLOYEE_MSTR where  PR_USER_ID = '",V.Caller.User,"'",V.Local.sSql)
+		F.ODBC.Connection!con.OpenLocalRecordsetRO("rst",V.Local.sSql)
+		F.Intrinsic.Control.If(V.ODBC.con!rst.EOF,=,True)
+			V.Local.sEmp.Set("")
+			V.Local.sEmpName.Set("")
+		F.Intrinsic.Control.Else
+			V.Local.sEmp.Set(V.ODBC.con!rst.FieldValTrim!EMPLOYEE)
+			V.Local.sEmpName.Set(V.ODBC.con!rst.FieldValTrim!NAME)
+		F.Intrinsic.Control.EndIf
+		F.ODBC.con!rst.Close
+		F.Intrinsic.Control.If(V.Passed.000145.Trim,=,0)
+			V.Local.sOrdNum.Set("")
+		F.Intrinsic.Control.Else
+			V.Local.sOrdNum.Set(V.Passed.000145.Trim)
+		F.Intrinsic.Control.EndIf
+		F.Intrinsic.Control.If(V.Passed.000147.Trim,=,0)
+			V.Local.sOrdLine.Set("")
+		F.Intrinsic.Control.Else
+			V.Local.sOrdLine.Set(V.Passed.000147.Trim)
+		F.Intrinsic.Control.EndIf
+		F.Intrinsic.Control.If(V.uGlobal.uAllocate.UBound,=,-1)
+			V.uGlobal.uAllocate.Redim(0,0)
+			F.Intrinsic.Math.Add(V.Local.iSeq,1,V.Local.iSeq)
+			F.Intrinsic.String.LPad(V.Local.iSeq,0,4,V.Local.sSeq)
+			V.uGlobal.uAllocate!Trans_ID.Set(V.Local.sTID)
+			V.uGlobal.uAllocate!Trans_Seq.Set(V.Local.sSeq)
+			V.uGlobal.uAllocate!Trans_Type.Set("GAB")
+			V.uGlobal.uAllocate!Status_Flag.Set("Y")
+			V.uGlobal.uAllocate!Attempted_Flag.Set("Y")
+			V.uGlobal.uAllocate!Attempted_Date.Set(V.Local.sDate)
+			V.uGlobal.uAllocate!Attempted_Time.Set(V.Local.sTime)
+			V.uGlobal.uAllocate!User_ID.Set(V.Caller.User)
+			V.uGlobal.uAllocate!Part.Set(V.Passed.000005.Trim)
+			V.uGlobal.uAllocate!Locn.Set(V.Passed.000008.Trim)
+			V.uGlobal.uAllocate!Lot.Set(V.Local.sRow(0).Trim)
+			V.uGlobal.uAllocate!Bin.Set(V.Local.sRow(1).Trim)
+			V.uGlobal.uAllocate!Heat.Set(V.Local.sChk)
+			V.uGlobal.uAllocate!Serial.Set(V.Local.sRow(3).Trim)
+			V.uGlobal.uAllocate!Target_Bin.Set(V.Local.sRow(1).Trim)
+			V.uGlobal.uAllocate!On_Hand_Qty.Set(V.Local.sRow(9).Float)
+			V.uGlobal.uAllocate!Available_Qty.Set(V.Local.sRow(6).Float)
+			V.uGlobal.uAllocate!Transfer_Qty.Set(V.Local.sRow(9).Float)
+			V.uGlobal.uAllocate!Description.Set(V.Passed.000004.Trim)
+			V.uGlobal.uAllocate!Employee_ID.Set(V.Local.sEmp)
+			V.uGlobal.uAllocate!Employee_Name.Set(V.Local.sEmpName)
+			V.uGlobal.uAllocate!Reference.Set("ALLOCATION")
+			V.uGlobal.uAllocate!WO_Nbr.Set(V.Passed.000150.Trim)
+			V.uGlobal.uAllocate!WO_Suffix.Set(V.Passed.000151.Trim)
+			V.uGlobal.uAllocate!SO_Nbr.Set(V.Local.sOrdNum)
+			V.uGlobal.uAllocate!SO_Line.Set(V.Local.sOrdLine)
+			V.uGlobal.uAllocate!Last_Chg_Date.Set(V.Local.sDate)
+			V.uGlobal.uAllocate!Last_Chg_Time.Set(V.Local.sTime)
+			V.uGlobal.uAllocate!Last_Chg_By.Set("GAB")
+		F.Intrinsic.Control.Else
+			F.Intrinsic.Variable.UDTMultiSeek(V.uGlobal.uAllocate!Lot,V.Local.sRow(0).Trim,V.uGlobal.uAllocate!Bin,V.Local.sRow(1).Trim,V.uGlobal.uAllocate!Heat,V.Local.sChk,V.Local.sRet)
+			F.Intrinsic.Control.If(V.Local.sRet,=,"")
+				V.Local.iUB.Set(V.uGlobal.uAllocate.UBound)
+				F.Intrinsic.Math.Add(V.Local.iUB,1,V.Local.iUB)
+				V.uGlobal.uAllocate.RedimPreserve(0,V.Local.iUB)
+				F.Intrinsic.Math.Add(V.Local.iSeq,1,V.Local.iSeq)
+				F.Intrinsic.String.LPad(V.Local.iSeq,0,4,V.Local.sSeq)
+				V.uGlobal.uAllocate(V.Local.iUB)!Trans_ID.Set(V.Local.sTID)
+				V.uGlobal.uAllocate(V.Local.iUB)!Trans_Seq.Set(V.Local.sSeq)
+				V.uGlobal.uAllocate(V.Local.iUB)!Trans_Type.Set("GAB")
+				V.uGlobal.uAllocate(V.Local.iUB)!Status_Flag.Set("Y")
+				V.uGlobal.uAllocate(V.Local.iUB)!Attempted_Flag.Set("Y")
+				V.uGlobal.uAllocate(V.Local.iUB)!Attempted_Date.Set(V.Local.sDate)
+				V.uGlobal.uAllocate(V.Local.iUB)!Attempted_Time.Set(V.Local.sTime)
+				V.uGlobal.uAllocate(V.Local.iUB)!User_ID.Set(V.Caller.User)
+				V.uGlobal.uAllocate(V.Local.iUB)!Part.Set(V.Passed.000005.Trim)
+				V.uGlobal.uAllocate(V.Local.iUB)!Locn.Set(V.Passed.000008.Trim)
+				V.uGlobal.uAllocate(V.Local.iUB)!Lot.Set(V.Local.sRow(0).Trim)
+				V.uGlobal.uAllocate(V.Local.iUB)!Bin.Set(V.Local.sRow(1).Trim)
+				V.uGlobal.uAllocate(V.Local.iUB)!Heat.Set(V.Local.sChk)
+				V.uGlobal.uAllocate(V.Local.iUB)!Serial.Set(V.Local.sRow(3).Trim)
+				V.uGlobal.uAllocate(V.Local.iUB)!Target_Bin.Set(V.Local.sRow(1).Trim)
+				V.uGlobal.uAllocate(V.Local.iUB)!On_Hand_Qty.Set(V.Local.sRow(9).Float)
+				V.uGlobal.uAllocate(V.Local.iUB)!Available_Qty.Set(V.Local.sRow(6).Float)
+				V.uGlobal.uAllocate(V.Local.iUB)!Transfer_Qty.Set(V.Local.sRow(9).Float)
+				V.uGlobal.uAllocate(V.Local.iUB)!Description.Set(V.Passed.000004.Trim)
+				V.uGlobal.uAllocate(V.Local.iUB)!Employee_ID.Set(V.Local.sEmp)
+				V.uGlobal.uAllocate(V.Local.iUB)!Employee_Name.Set(V.Local.sEmpName)
+				V.uGlobal.uAllocate(V.Local.iUB)!Reference.Set("ALLOCATION")
+				V.uGlobal.uAllocate(V.Local.iUB)!WO_Nbr.Set(V.Passed.000150.Trim)
+				V.uGlobal.uAllocate(V.Local.iUB)!WO_Suffix.Set(V.Passed.000151.Trim)
+				V.uGlobal.uAllocate(V.Local.iUB)!SO_Nbr.Set(V.Local.sOrdNum)
+				V.uGlobal.uAllocate(V.Local.iUB)!SO_Line.Set(V.Local.sOrdLine)
+				V.uGlobal.uAllocate(V.Local.iUB)!Last_Chg_Date.Set(V.Local.sDate)
+				V.uGlobal.uAllocate(V.Local.iUB)!Last_Chg_Time.Set(V.Local.sTime)
+				V.uGlobal.uAllocate(V.Local.iUB)!Last_Chg_By.Set("GAB")
+			F.Intrinsic.Control.Else
+				F.Intrinsic.String.Split(V.Local.sRet,"*!*",V.Local.sRet)
+				F.Intrinsic.Math.Add(V.Local.iSeq,1,V.Local.iSeq)
+				F.Intrinsic.String.LPad(V.Local.iSeq,0,4,V.Local.sSeq)
+				V.uGlobal.uAllocate(V.Local.iUB)!Trans_ID.Set(V.Local.sTID)
+				V.uGlobal.uAllocate(V.Local.iUB)!Trans_Seq.Set(V.Local.sSeq)
+				V.uGlobal.uAllocate(V.Local.iUB)!Trans_Type.Set("GAB")
+				V.uGlobal.uAllocate(V.Local.iUB)!Status_Flag.Set("Y")
+				V.uGlobal.uAllocate(V.Local.iUB)!Attempted_Flag.Set("Y")
+				V.uGlobal.uAllocate(V.Local.iUB)!Attempted_Date.Set(V.Local.sDate)
+				V.uGlobal.uAllocate(V.Local.iUB)!Attempted_Time.Set(V.Local.sTime)
+				V.uGlobal.uAllocate(V.Local.iUB)!User_ID.Set(V.Caller.User)
+				V.uGlobal.uAllocate(V.Local.iUB)!Part.Set(V.Passed.000005.Trim)
+				V.uGlobal.uAllocate(V.Local.iUB)!Locn.Set(V.Passed.000008.Trim)
+				V.uGlobal.uAllocate(V.Local.iUB)!Lot.Set(V.Local.sRow(0).Trim)
+				V.uGlobal.uAllocate(V.Local.iUB)!Bin.Set(V.Local.sRow(1).Trim)
+				V.uGlobal.uAllocate(V.Local.iUB)!Heat.Set(V.Local.sChk)
+				V.uGlobal.uAllocate(V.Local.iUB)!Serial.Set(V.Local.sRow(3).Trim)
+				V.uGlobal.uAllocate(V.Local.iUB)!Target_Bin.Set(V.Local.sRow(1).Trim)
+				F.Intrinsic.Math.Add(V.Local.sRow(9).Float,V.uGlobal.uAllocate(V.Local.sRet.Long)!On_Hand_Qty,V.Local.fQty)
+				V.uGlobal.uAllocate(V.Local.iUB)!On_Hand_Qty.Set(V.Local.fQty)
+				V.uGlobal.uAllocate(V.Local.iUB)!Available_Qty.Set(V.Local.sRow(6).Float)
+				V.uGlobal.uAllocate(V.Local.iUB)!Transfer_Qty.Set(V.Local.sRow(9).Float)
+				V.uGlobal.uAllocate(V.Local.iUB)!Description.Set(V.Passed.000004.Trim)
+				V.uGlobal.uAllocate(V.Local.iUB)!Employee_ID.Set(V.Local.sEmp)
+				V.uGlobal.uAllocate(V.Local.iUB)!Employee_Name.Set(V.Local.sEmpName)
+				V.uGlobal.uAllocate(V.Local.iUB)!Reference.Set("ALLOCATION")
+				V.uGlobal.uAllocate(V.Local.iUB)!WO_Nbr.Set(V.Passed.000150.Trim)
+				V.uGlobal.uAllocate(V.Local.iUB)!WO_Suffix.Set(V.Passed.000151.Trim)
+				V.uGlobal.uAllocate(V.Local.iUB)!SO_Nbr.Set(V.Local.sOrdNum)
+				V.uGlobal.uAllocate(V.Local.iUB)!SO_Line.Set(V.Local.sOrdLine)
+				V.uGlobal.uAllocate(V.Local.iUB)!Last_Chg_Date.Set(V.Local.sDate)
+				V.uGlobal.uAllocate(V.Local.iUB)!Last_Chg_Time.Set(V.Local.sTime)
+				V.uGlobal.uAllocate(V.Local.iUB)!Last_Chg_By.Set("GAB")
+			F.Intrinsic.Control.EndIf
+		F.Intrinsic.Control.EndIf
+		V.Local.sSql.Set("Select * from WIRELESS_LABEL")
+		F.ODBC.Connection!con.OpenLocalRecordsetRW("rst",V.Local.sSql)
+		F.Intrinsic.Control.If(V.uGlobal.uAllocate.UBound,>,-1)
+			F.Intrinsic.Control.For(V.Local.ia,V.uGlobal.uAllocate.LBound,V.uGlobal.uAllocate.UBound,1)
+				F.ODBC.con!rst.AddNew
+				F.ODBC.con!rst.Set!TRANS_ID(V.uGlobal.uAllocate(V.Local.ia)!Trans_ID)
+				F.ODBC.con!rst.Set!TRANS_SEQ(V.uGlobal.uAllocate(V.Local.ia)!Trans_Seq)
+				F.ODBC.con!rst.Set!TRANS_TYPE(V.uGlobal.uAllocate(V.Local.ia)!Trans_Type)
+				F.ODBC.con!rst.Set!STATUS_FLAG(V.uGlobal.uAllocate(V.Local.ia)!Status_Flag)
+				F.ODBC.con!rst.Set!ATTEMPTED_FLAG(V.uGlobal.uAllocate(V.Local.ia)!Attempted_Flag)
+				F.ODBC.con!rst.Set!ATTEMPTED_DATE(V.uGlobal.uAllocate(V.Local.ia)!Attempted_Date)
+				F.ODBC.con!rst.Set!ATTEMPTED_TIME(V.uGlobal.uAllocate(V.Local.ia)!Attempted_Time)
+				F.ODBC.con!rst.Set!USER_ID(V.uGlobal.uAllocate(V.Local.ia)!User_ID)
+				F.ODBC.con!rst.Set!PART(V.uGlobal.uAllocate(V.Local.ia)!Part)
+				F.ODBC.con!rst.Set!LOCN(V.uGlobal.uAllocate(V.Local.ia)!Locn)
+				F.ODBC.con!rst.Set!LOT(V.uGlobal.uAllocate(V.Local.ia)!Lot)
+				F.ODBC.con!rst.Set!BIN(V.uGlobal.uAllocate(V.Local.ia)!Bin)
+				F.ODBC.con!rst.Set!HEAT(V.uGlobal.uAllocate(V.Local.ia)!Heat)
+				F.ODBC.con!rst.Set!SERIAL(V.uGlobal.uAllocate(V.Local.ia)!Serial)
+				F.ODBC.con!rst.Set!TARGET_BIN(V.uGlobal.uAllocate(V.Local.ia)!Target_Bin)
+				F.ODBC.con!rst.Set!ON_HAND_QTY(V.uGlobal.uAllocate(V.Local.ia)!On_Hand_Qty)
+				F.ODBC.con!rst.Set!AVAILABLE_QTY(V.uGlobal.uAllocate(V.Local.ia)!Available_Qty)
+				F.ODBC.con!rst.Set!TRANSFER_QTY(V.uGlobal.uAllocate(V.Local.ia)!Transfer_Qty)
+				F.ODBC.con!rst.Set!DESCRIPTION(V.uGlobal.uAllocate(V.Local.ia)!Description)
+				F.ODBC.con!rst.Set!EMPLOYEE_ID(V.uGlobal.uAllocate(V.Local.ia)!Employee_ID)
+				F.ODBC.con!rst.Set!EMPLOYEE_NAME(V.uGlobal.uAllocate(V.Local.ia)!Employee_Name)
+				F.ODBC.con!rst.Set!REFERENCE(V.uGlobal.uAllocate(V.Local.ia)!Reference)
+				F.ODBC.con!rst.Set!WO_NBR(V.uGlobal.uAllocate(V.Local.ia)!WO_Nbr)
+				F.ODBC.con!rst.Set!WO_SUFFIX(V.uGlobal.uAllocate(V.Local.ia)!WO_Suffix)
+				F.ODBC.con!rst.Set!SO_NBR(V.uGlobal.uAllocate(V.Local.ia)!SO_Nbr)
+				F.ODBC.con!rst.Set!SO_LINE(V.uGlobal.uAllocate(V.Local.ia)!SO_Line)
+				F.ODBC.con!rst.Set!LAST_CHG_DATE(V.uGlobal.uAllocate(V.Local.ia)!Last_Chg_Date)
+				F.ODBC.con!rst.Set!LAST_CHG_TIME(V.uGlobal.uAllocate(V.Local.ia)!Last_Chg_Time)
+				F.ODBC.con!rst.Set!LAST_CHG_BY(V.uGlobal.uAllocate(V.Local.ia)!Last_Chg_By)
+				F.ODBC.con!rst.Update
+				F.Intrinsic.Control.CallSub(Print,"sTID",V.Local.sTID,"sSeq",V.Local.sSeq)
+			F.Intrinsic.Control.Next(V.Local.ia)
+		F.Intrinsic.Control.EndIf
+		F.ODBC.con!rst.Close
+	F.Intrinsic.Control.EndIf
+F.Intrinsic.Control.Next(V.Local.i)
+
+F.Intrinsic.Control.ExitSub
+
+F.Intrinsic.Control.Label("Allocate_Err")
+F.Intrinsic.Control.If(V.Ambient.ErrorNumber,<>,0)
+	Function.Intrinsic.String.Concat("Project: GCG_Allocation_Label.gas",V.Ambient.Newline,V.Ambient.Newline,"Subroutine: ",V.Ambient.CurrentSubroutine,V.Ambient.NewLine,"Error Occurred ",V.Ambient.ErrorNumber," with description ",V.Ambient.ErrorDescription,V.Local.sError)
+	F.Intrinsic.UI.Msgbox(V.Local.sError)
+	F.Intrinsic.Control.CallSub(Unload)
+Function.Intrinsic.Control.EndIf
+
+
+Program.Sub.Allocate.End
+
+Program.Sub.UnAllocate.Start
+F.Intrinsic.Control.SetErrorHandler("UnAllocate_Err")
+F.Intrinsic.Control.ClearErrors
+
+V.Local.sError.Declare(String)
+V.Local.sSql.Declare(String)
+V.Local.iTID.Declare(Long)
+V.Local.sTID.Declare(String)
+V.Local.iRowCnt.Declare(Long)
+V.Local.i.Declare(Long)
+V.Local.ia.Declare(Long)
+V.Local.sRow.Declare(String)
+V.Local.iSeq.Declare(Long)
+V.Local.sSeq.Declare(String)
+V.Local.sDate.Declare(String)
+V.Local.sTime.Declare(String)
+V.Local.fQty.Declare(Float)
+V.Local.sEmp.Declare(String)
+V.Local.sEmpName.Declare(String)
+V.Local.sOrdNum.Declare(String)
+V.Local.sOrdLine.Declare(String)
+V.Local.sChk.Declare(String)
+V.Local.sRet.Declare(String)
+V.Local.iUB.Declare(Long)
+
+'Getting last transaction id
+V.Local.sSql.Set("Select TRANS_ID from WIRELESS_LABEL")
+F.ODBC.Connection!con.OpenLocalRecordsetRO("rst",V.Local.sSql)
+F.Intrinsic.Control.If(V.ODBC.con!rst.EOF,=,True)
+	V.Local.iTID.Set(1)
+F.Intrinsic.Control.Else
+	F.Intrinsic.Control.DoUntil(V.ODBC.con!rst.EOF,=,True)
+		V.Local.iTID.Set(V.ODBC.con!rst.FieldVal!TRANS_ID)
+		F.ODBC.con!rst.MoveNext
+	F.Intrinsic.Control.Loop
+F.Intrinsic.Control.EndIf
+F.ODBC.con!rst.Close
+'Checking to see which allocation type
+F.Intrinsic.Control.SelectCase(V.Passed.000112.Trim)
+	F.Intrinsic.Control.Case("User")
+		F.Intrinsic.Control.If(V.Passed.000292.Trim,=,"")
+			V.Local.sChk.Set(V.Caller.User)
+		F.Intrinsic.Control.Else
+			V.Local.sChk.Set(V.Passed.000292.Trim)
+		F.Intrinsic.Control.EndIf
+	F.Intrinsic.Control.Case("Customer")
+		V.Local.sChk.Set(V.Passed.000144.Trim)
+	F.Intrinsic.Control.Case("Sales Order")
+		F.Intrinsic.String.Concat(V.Passed.000147.Trim,"-",V.Passed.000147.Trim)
+	F.Intrinsic.Control.Case("Work Order")
+		F.Intrinsic.String.LPad(V.Passed.000154.Trim,0,6,V.Local.sChk)
+		F.Intrinsic.String.Concat(V.Passed.000150.Trim,V.Passed.000151.Trim,V.Local.sChk,V.Local.sChk)
+F.Intrinsic.Control.EndSelect
+'Opening BDF to go through allocations
+F.Intrinsic.BDF.Load("AUX001","AUX001")
+F.Intrinsic.Debug.Stop
+F.Intrinsic.BDF.ReadRowCount("AUX001",V.Local.iRowCnt)
+F.Intrinsic.Math.Sub(V.Local.iRowCnt,1,V.Local.iRowCnt)
+F.Intrinsic.Math.Add(V.Local.iTID,1,V.Local.iTID)
+F.Intrinsic.String.LPad(V.Local.iTID,0,9,V.Local.sTID)
+V.Local.iSeq.Set(-1)
+F.Intrinsic.String.Format(V.Ambient.Date,"YYYYMMDD",V.Local.sDate)
+F.Intrinsic.String.Format(V.Ambient.Time,"HhNnSs",V.Local.sTime)
+F.Intrinsic.String.Concat(V.Local.sTime,"00",V.Local.sTime)
+F.Intrinsic.Control.For(V.Local.i,0,V.Local.iRowCnt,1)
+	F.Intrinsic.BDF.ReadRow("AUX001",V.Local.i,V.Local.sRow)
+	F.Intrinsic.String.Split(V.Local.sRow,"|~|",V.Local.sRow)
+	F.Intrinsic.Control.If(V.Local.sRow(9).Float,<>,0)
+		F.Intrinsic.Control.If(V.Local.sRow(10).Trim,=,"Y")
+			F.Intrinsic.String.Concat("Select EMPLOYEE, NAME from V_EMPLOYEE_MSTR where  PR_USER_ID = '",V.Caller.User,"'",V.Local.sSql)
+			F.ODBC.Connection!con.OpenLocalRecordsetRO("rst",V.Local.sSql)
+			F.Intrinsic.Control.If(V.ODBC.con!rst.EOF,=,True)
+				V.Local.sEmp.Set("")
+				V.Local.sEmpName.Set("")
+			F.Intrinsic.Control.Else
+				V.Local.sEmp.Set(V.ODBC.con!rst.FieldValTrim!EMPLOYEE)
+				V.Local.sEmpName.Set(V.ODBC.con!rst.FieldValTrim!NAME)
+			F.Intrinsic.Control.EndIf
+			F.ODBC.con!rst.Close
+			F.Intrinsic.Control.If(V.Passed.000145.Trim,=,0)
+				V.Local.sOrdNum.Set("")
+			F.Intrinsic.Control.Else
+				V.Local.sOrdNum.Set(V.Passed.000145.Trim)
+			F.Intrinsic.Control.EndIf
+			F.Intrinsic.Control.If(V.Passed.000147.Trim,=,0)
+				V.Local.sOrdLine.Set("")
+			F.Intrinsic.Control.Else
+				V.Local.sOrdLine.Set(V.Passed.000147.Trim)
+			F.Intrinsic.Control.EndIf
+			F.Intrinsic.Control.If(V.uGlobal.uAllocate.UBound,=,-1)
+				V.uGlobal.uAllocate.Redim(0,0)
+				F.Intrinsic.Math.Add(V.Local.iSeq,1,V.Local.iSeq)
+				F.Intrinsic.String.LPad(V.Local.iSeq,0,4,V.Local.sSeq)
+				V.uGlobal.uAllocate!Trans_ID.Set(V.Local.sTID)
+				V.uGlobal.uAllocate!Trans_Seq.Set(V.Local.sSeq)
+				V.uGlobal.uAllocate!Trans_Type.Set("GAB")
+				V.uGlobal.uAllocate!Status_Flag.Set("Y")
+				V.uGlobal.uAllocate!Attempted_Flag.Set("Y")
+				V.uGlobal.uAllocate!Attempted_Date.Set(V.Local.sDate)
+				V.uGlobal.uAllocate!Attempted_Time.Set(V.Local.sTime)
+				V.uGlobal.uAllocate!User_ID.Set(V.Caller.User)
+				V.uGlobal.uAllocate!Part.Set(V.Passed.000005.Trim)
+				V.uGlobal.uAllocate!Locn.Set(V.Passed.000008.Trim)
+				V.uGlobal.uAllocate!Lot.Set(V.Local.sRow(0).Trim)
+				V.uGlobal.uAllocate!Bin.Set(V.Local.sRow(1).Trim)
+				V.uGlobal.uAllocate!Heat.Set("")
+				V.uGlobal.uAllocate!Serial.Set(V.Local.sRow(3).Trim)
+				V.uGlobal.uAllocate!Target_Bin.Set(V.Local.sRow(1).Trim)
+				F.Intrinsic.Math.Add(V.Local.sRow(5).Float,V.Local.sRow(9).Float,V.Local.fQty)
+				V.uGlobal.uAllocate!On_Hand_Qty.Set(V.Local.fQty)
+				V.uGlobal.uAllocate!Available_Qty.Set(V.Local.sRow(5).Float)
+				V.uGlobal.uAllocate!Transfer_Qty.Set(V.Local.sRow(9).Float)
+				V.uGlobal.uAllocate!Description.Set(V.Passed.000004.Trim)
+				V.uGlobal.uAllocate!Employee_ID.Set(V.Local.sEmp)
+				V.uGlobal.uAllocate!Employee_Name.Set(V.Local.sEmpName)
+				V.uGlobal.uAllocate!Reference.Set("UNALLOCATION")
+				V.uGlobal.uAllocate!WO_Nbr.Set(V.Passed.000150.Trim)
+				V.uGlobal.uAllocate!WO_Suffix.Set(V.Passed.000151.Trim)
+				V.uGlobal.uAllocate!SO_Nbr.Set(V.Local.sOrdNum)
+				V.uGlobal.uAllocate!SO_Line.Set(V.Local.sOrdLine)
+				V.uGlobal.uAllocate!Last_Chg_Date.Set(V.Local.sDate)
+				V.uGlobal.uAllocate!Last_Chg_Time.Set(V.Local.sTime)
+				V.uGlobal.uAllocate!Last_Chg_By.Set("GAB")
+			F.Intrinsic.Control.Else
+				V.Local.iUB.Set(V.uGlobal.uAllocate.UBound)
+				F.Intrinsic.Math.Add(V.Local.iUB,1,V.Local.iUB)
+				V.uGlobal.uAllocate.RedimPreserve(0,V.Local.iUB)
+				F.Intrinsic.Math.Add(V.Local.iSeq,1,V.Local.iSeq)
+				F.Intrinsic.String.LPad(V.Local.iSeq,0,4,V.Local.sSeq)
+				V.uGlobal.uAllocate(V.Local.iUB)!Trans_ID.Set(V.Local.sTID)
+				V.uGlobal.uAllocate(V.Local.iUB)!Trans_Seq.Set(V.Local.sSeq)
+				V.uGlobal.uAllocate(V.Local.iUB)!Trans_Type.Set("GAB")
+				V.uGlobal.uAllocate(V.Local.iUB)!Status_Flag.Set("Y")
+				V.uGlobal.uAllocate(V.Local.iUB)!Attempted_Flag.Set("Y")
+				V.uGlobal.uAllocate(V.Local.iUB)!Attempted_Date.Set(V.Local.sDate)
+				V.uGlobal.uAllocate(V.Local.iUB)!Attempted_Time.Set(V.Local.sTime)
+				V.uGlobal.uAllocate(V.Local.iUB)!User_ID.Set(V.Caller.User)
+				V.uGlobal.uAllocate(V.Local.iUB)!Part.Set(V.Passed.000005.Trim)
+				V.uGlobal.uAllocate(V.Local.iUB)!Locn.Set(V.Passed.000008.Trim)
+				V.uGlobal.uAllocate(V.Local.iUB)!Lot.Set(V.Local.sRow(0).Trim)
+				V.uGlobal.uAllocate(V.Local.iUB)!Bin.Set(V.Local.sRow(1).Trim)
+				V.uGlobal.uAllocate(V.Local.iUB)!Heat.Set(V.Local.sChk)
+				V.uGlobal.uAllocate(V.Local.iUB)!Serial.Set(V.Local.sRow(3).Trim)
+				V.uGlobal.uAllocate(V.Local.iUB)!Target_Bin.Set(V.Local.sRow(1).Trim)
+				F.Intrinsic.Math.Add(V.Local.sRow(5).Float,V.Local.sRow(9).Float,V.Local.fQty)
+				V.uGlobal.uAllocate(V.Local.iUB)!On_Hand_Qty.Set(V.Local.fQty)
+				V.uGlobal.uAllocate(V.Local.iUB)!Available_Qty.Set(V.Local.sRow(5).Float)
+				V.uGlobal.uAllocate(V.Local.iUB)!Transfer_Qty.Set(V.Local.sRow(9).Float)
+				V.uGlobal.uAllocate(V.Local.iUB)!Description.Set(V.Passed.000004.Trim)
+				V.uGlobal.uAllocate(V.Local.iUB)!Employee_ID.Set(V.Local.sEmp)
+				V.uGlobal.uAllocate(V.Local.iUB)!Employee_Name.Set(V.Local.sEmpName)
+				V.uGlobal.uAllocate(V.Local.iUB)!Reference.Set("UNALLOCATION")
+				V.uGlobal.uAllocate(V.Local.iUB)!WO_Nbr.Set(V.Passed.000150.Trim)
+				V.uGlobal.uAllocate(V.Local.iUB)!WO_Suffix.Set(V.Passed.000151.Trim)
+				V.uGlobal.uAllocate(V.Local.iUB)!SO_Nbr.Set(V.Local.sOrdNum)
+				V.uGlobal.uAllocate(V.Local.iUB)!SO_Line.Set(V.Local.sOrdLine)
+				V.uGlobal.uAllocate(V.Local.iUB)!Last_Chg_Date.Set(V.Local.sDate)
+				V.uGlobal.uAllocate(V.Local.iUB)!Last_Chg_Time.Set(V.Local.sTime)
+				V.uGlobal.uAllocate(V.Local.iUB)!Last_Chg_By.Set("GAB")
+			F.Intrinsic.Control.EndIf
+			V.Local.sSql.Set("Select * from WIRELESS_LABEL")
+			F.ODBC.Connection!con.OpenLocalRecordsetRW("rst",V.Local.sSql)
+			F.Intrinsic.Control.If(V.uGlobal.uAllocate.UBound,>,-1)
+				F.Intrinsic.Control.For(V.Local.ia,V.uGlobal.uAllocate.LBound,V.uGlobal.uAllocate.UBound,1)
+					F.ODBC.con!rst.AddNew
+					F.ODBC.con!rst.Set!TRANS_ID(V.uGlobal.uAllocate(V.Local.ia)!Trans_ID)
+					F.ODBC.con!rst.Set!TRANS_SEQ(V.uGlobal.uAllocate(V.Local.ia)!Trans_Seq)
+					F.ODBC.con!rst.Set!TRANS_TYPE(V.uGlobal.uAllocate(V.Local.ia)!Trans_Type)
+					F.ODBC.con!rst.Set!STATUS_FLAG(V.uGlobal.uAllocate(V.Local.ia)!Status_Flag)
+					F.ODBC.con!rst.Set!ATTEMPTED_FLAG(V.uGlobal.uAllocate(V.Local.ia)!Attempted_Flag)
+					F.ODBC.con!rst.Set!ATTEMPTED_DATE(V.uGlobal.uAllocate(V.Local.ia)!Attempted_Date)
+					F.ODBC.con!rst.Set!ATTEMPTED_TIME(V.uGlobal.uAllocate(V.Local.ia)!Attempted_Time)
+					F.ODBC.con!rst.Set!USER_ID(V.uGlobal.uAllocate(V.Local.ia)!User_ID)
+					F.ODBC.con!rst.Set!PART(V.uGlobal.uAllocate(V.Local.ia)!Part)
+					F.ODBC.con!rst.Set!LOCN(V.uGlobal.uAllocate(V.Local.ia)!Locn)
+					F.ODBC.con!rst.Set!LOT(V.uGlobal.uAllocate(V.Local.ia)!Lot)
+					F.ODBC.con!rst.Set!BIN(V.uGlobal.uAllocate(V.Local.ia)!Bin)
+					F.ODBC.con!rst.Set!HEAT(V.uGlobal.uAllocate(V.Local.ia)!Heat)
+					F.ODBC.con!rst.Set!SERIAL(V.uGlobal.uAllocate(V.Local.ia)!Serial)
+					F.ODBC.con!rst.Set!TARGET_BIN(V.uGlobal.uAllocate(V.Local.ia)!Target_Bin)
+					F.ODBC.con!rst.Set!ON_HAND_QTY(V.uGlobal.uAllocate(V.Local.ia)!On_Hand_Qty)
+					F.ODBC.con!rst.Set!AVAILABLE_QTY(V.uGlobal.uAllocate(V.Local.ia)!Available_Qty)
+					F.ODBC.con!rst.Set!TRANSFER_QTY(V.uGlobal.uAllocate(V.Local.ia)!Transfer_Qty)
+					F.ODBC.con!rst.Set!DESCRIPTION(V.uGlobal.uAllocate(V.Local.ia)!Description)
+					F.ODBC.con!rst.Set!EMPLOYEE_ID(V.uGlobal.uAllocate(V.Local.ia)!Employee_ID)
+					F.ODBC.con!rst.Set!EMPLOYEE_NAME(V.uGlobal.uAllocate(V.Local.ia)!Employee_Name)
+					F.ODBC.con!rst.Set!REFERENCE(V.uGlobal.uAllocate(V.Local.ia)!Reference)
+					F.ODBC.con!rst.Set!WO_NBR(V.uGlobal.uAllocate(V.Local.ia)!WO_Nbr)
+					F.ODBC.con!rst.Set!WO_SUFFIX(V.uGlobal.uAllocate(V.Local.ia)!WO_Suffix)
+					F.ODBC.con!rst.Set!SO_NBR(V.uGlobal.uAllocate(V.Local.ia)!SO_Nbr)
+					F.ODBC.con!rst.Set!SO_LINE(V.uGlobal.uAllocate(V.Local.ia)!SO_Line)
+					F.ODBC.con!rst.Set!LAST_CHG_DATE(V.uGlobal.uAllocate(V.Local.ia)!Last_Chg_Date)
+					F.ODBC.con!rst.Set!LAST_CHG_TIME(V.uGlobal.uAllocate(V.Local.ia)!Last_Chg_Time)
+					F.ODBC.con!rst.Set!LAST_CHG_BY(V.uGlobal.uAllocate(V.Local.ia)!Last_Chg_By)
+					F.ODBC.con!rst.Update
+					F.Intrinsic.Control.CallSub(Print,"sTID",V.Local.sTID,"sSeq",V.Local.sSeq)
+				F.Intrinsic.Control.Next(V.Local.ia)
+			F.Intrinsic.Control.EndIf
+			F.ODBC.con!rst.Close
+		F.Intrinsic.Control.EndIf
+	F.Intrinsic.Control.EndIf
+F.Intrinsic.Control.Next(V.Local.i)
+
+F.Intrinsic.Control.ExitSub
+
+F.Intrinsic.Control.Label("UnAllocate_Err")
+F.Intrinsic.Control.If(V.Ambient.ErrorNumber,<>,0)
+	Function.Intrinsic.String.Concat("Project: GCG_Allocation_Label.gas",V.Ambient.Newline,V.Ambient.Newline,"Subroutine: ",V.Ambient.CurrentSubroutine,V.Ambient.NewLine,"Error Occurred ",V.Ambient.ErrorNumber," with description ",V.Ambient.ErrorDescription,V.Local.sError)
+	F.Intrinsic.UI.Msgbox(V.Local.sError)
+	F.Intrinsic.Control.CallSub(Unload)
+Function.Intrinsic.Control.EndIf
+
+Program.Sub.UnAllocate.End
+
+Program.Sub.Unload.Start
+F.ODBC.Connection!con.Close
+F.Intrinsic.Control.End
+
+Program.Sub.Unload.End
+
+Program.Sub.Print.Start
+F.Intrinsic.Control.SetErrorHandler("Print_Err")
+F.Intrinsic.Control.ClearErrors
+
+V.Local.sError.Declare(String)
+V.Local.iBI.Declare(Long)
+V.Local.sParam.Declare(String)
+V.Local.sParamVal.Declare(String)
+
+V.Local.sParam.Set("Trans_ID*!*Line_Seq")
+F.Intrinsic.String.Split(V.Local.sParam,"*!*",V.Local.sParam)
+F.Intrinsic.String.Concat(V.Args.sTID,"*!*",V.Args.sSeq,V.Local.sParamVal)
+F.Intrinsic.String.Split(V.Local.sParamVal,"*!*",V.Local.sParamVal)
+F.Global.BI.GetIDFromName("BIN2BIN.btw",V.Local.iBI)
+F.Global.BI.PrintBartenderLabel(V.Local.iBI,3,V.Local.sParam,V.Local.sParamVal,False,,1)
+
+F.Intrinsic.Control.ExitSub
+
+F.Intrinsic.Control.Label("Print_Err")
+F.Intrinsic.Control.If(V.Ambient.ErrorNumber,<>,0)
+	Function.Intrinsic.String.Concat("Project: GCG_Allocation_Label.gas",V.Ambient.Newline,V.Ambient.Newline,"Subroutine: ",V.Ambient.CurrentSubroutine,V.Ambient.NewLine,"Error Occurred ",V.Ambient.ErrorNumber," with description ",V.Ambient.ErrorDescription,V.Local.sError)
+	F.Intrinsic.UI.Msgbox(V.Local.sError)
+	F.Intrinsic.Control.CallSub(Unload)
+Function.Intrinsic.Control.EndIf
+
+
+Program.Sub.Print.End
+
+Program.Sub.Comments.Start
+${$0$}$GCG_Allocation_Label$}$MLA$}$1/23/2012
+${$1$}$$}$$}$1$}$33162$}$Unalloc Pre-Process$}$1/23/2012 11:00:14 AM$}$(Program: INV060; Screen: INS060A)
+
+${$1$}$$}$$}$0$}$33155$}$Save pre-process$}$1/23/2012 10:54:17 AM$}$(Program: INV060; Screen: INS060A)
+
+${$3$}$0$}$$}$-1$}$-1$}$$}$1/1/1900$}$Customer: Midwest Fixture Group
+Quote: 3048
+Call: MID050-9820110836-3
+Program.Sub.Comments.End
+
